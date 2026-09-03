@@ -7,20 +7,23 @@ const app = express();
 app.use(express.json());
 const PORT = process.env.PORT || 3000;
 
-// A simple test route: when someone visits this URL, 
-// ask the database "what time is it right now?" and send that back.
-app.get('/test-db', async (req, res) => {
+// Health check endpoint
+app.get('/health', (req, res) => {
+    res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+app.get('/test-db', async (req, res, next) => {
     try {
         const result = await pool.query('SELECT NOW()');
         res.json({ success: true, dbTime: result.rows[0] });
     } catch (err) {
-        res.status(500).json({ success: false, error: err.message });
+        next(err);
     }
 });
 
 
 
-app.get('/api/items/available', async (req, res) => {
+app.get('/api/items/available', async (req, res, next) => {
     const { start, end } = req.query;
 
     if (!start || !end) {
@@ -45,12 +48,11 @@ app.get('/api/items/available', async (req, res) => {
         );
         res.json({ success: true, items: result.rows });
     } catch (err) {
-        res.status(500).json({ success: false, error: err.message });
+        next(err);
     }
 });
 
-
-app.get('/api/rentals/current', async (req, res) => {
+app.get('/api/rentals/current', async (req, res, next) => {
     try {
         const result = await pool.query(
             `SELECT 
@@ -72,11 +74,11 @@ app.get('/api/rentals/current', async (req, res) => {
         );
         res.json({ success: true, rentals: result.rows });
     } catch (err) {
-        res.status(500).json({ success: false, error: err.message });
+        next(err);
     }
 });
 
-app.get('/api/rentals/overdue', async (req, res) => {
+app.get('/api/rentals/overdue', async (req, res, next) => {
     try {
         const result = await pool.query(
             `SELECT 
@@ -99,12 +101,12 @@ app.get('/api/rentals/overdue', async (req, res) => {
         );
         res.json({ success: true, rentals: result.rows });
     } catch (err) {
-        res.status(500).json({ success: false, error: err.message });
+        next(err);
     }
 });
 
 
-app.get('/api/items/:itemId/history', async (req, res) => {
+app.get('/api/items/:itemId/history', async (req, res, next) => {
     const { itemId } = req.params;
 
     try {
@@ -127,11 +129,11 @@ app.get('/api/items/:itemId/history', async (req, res) => {
         );
         res.json({ success: true, history: result.rows });
     } catch (err) {
-        res.status(500).json({ success: false, error: err.message });
+        next(err);
     }
 });
 
-app.get('/api/rentals/overdue-fees', async (req, res) => {
+app.get('/api/rentals/overdue-fees', async (req, res, next) => {
     try {
         const result = await pool.query(
             `SELECT 
@@ -156,20 +158,19 @@ app.get('/api/rentals/overdue-fees', async (req, res) => {
         );
         res.json({ success: true, fees: result.rows });
     } catch (err) {
-        res.status(500).json({ success: false, error: err.message });
+        next(err);
     }
 });
 
 // This handles checkout, returns, and extensions. It uses the rental_group_id to link
 // events together, which is key for tracking extensions and returns correctly.
-app.post('/api/rentals', async (req, res) => {
+app.post('/api/rentals', async (req, res, next) => {
     const { asset_id, user_id, end_date, staff_id } = req.body;
 
     if (!asset_id || !user_id || !end_date) {
-        return res.status(400).json({
-            success: false,
-            error: 'asset_id, user_id, and end_date are required.'
-        });
+        const err = new Error('asset_id, user_id, and end_date are required.');
+        err.statusCode = 400;
+        return next(err);
     }
 
     const assetCheck = await pool.query(
@@ -178,10 +179,9 @@ app.post('/api/rentals', async (req, res) => {
     );
 
     if (assetCheck.rows.length === 0) {
-        return res.status(404).json({
-            success: false,
-            error: `No asset found with id ${asset_id}.`
-        });
+        const err = new Error(`No asset found with id ${asset_id}.`);
+        err.statusCode = 404;
+        return next(err);
     }
 
     const userCheck = await pool.query(
@@ -190,10 +190,9 @@ app.post('/api/rentals', async (req, res) => {
     );
 
     if (userCheck.rows.length === 0) {
-        return res.status(404).json({
-            success: false,
-            error: `No user found with id ${user_id}.`
-        });
+        const err = new Error(`No user found with id ${user_id}.`);
+        err.statusCode = 404;
+        return next(err);
     }
 
     const itemCheck = await pool.query(
@@ -208,10 +207,9 @@ app.post('/api/rentals', async (req, res) => {
         );
 
         if (paymentCheck.rows[0].stripe_customer_id === null) {
-            return res.status(402).json({
-                success: false,
-                error: 'This item requires a payment method on file.'
-            });
+            const err = new Error('This item requires a payment method on file.');
+            err.statusCode = 402;
+            return next(err);
         }
     }
 
@@ -220,13 +218,8 @@ app.post('/api/rentals', async (req, res) => {
     try {
         await client.query('BEGIN');
 
-        // Generate a shared ID to tie this checkout to any future 
-        // extensions/returns. Using the current timestamp + random digits 
-        // keeps it simple for now — good enough for this project's scale.
         const rentalGroupId = Date.now();
 
-        // Write #1: create the checkout event itself.
-        // start_date uses NOW() — the server decides "right now," not the client.
         const insertEvent = await client.query(
             `INSERT INTO rental_events 
                 (rental_group_id, asset_id, user_id, staff_id, event_type, start_date, end_date)
@@ -234,7 +227,6 @@ app.post('/api/rentals', async (req, res) => {
              RETURNING event_id`,
             [rentalGroupId, asset_id, user_id, staff_id || null, end_date]
         );
-
 
         await client.query(
             `UPDATE items SET current_status = 'checked_out' WHERE item_id = $1`,
@@ -251,14 +243,14 @@ app.post('/api/rentals', async (req, res) => {
 
     } catch (err) {
         await client.query('ROLLBACK');
-        res.status(409).json({ success: false, error: err.message });
+        err.statusCode = 409;
+        next(err);
     } finally {
         client.release();
     }
 });
 
-
-app.post('/api/rentals/:eventId/return', async (req, res) => {
+app.post('/api/rentals/:eventId/return', async (req, res, next) => {
     const { eventId } = req.params;
     const { condition_after, condition_notes } = req.body;
 
@@ -277,10 +269,9 @@ app.post('/api/rentals/:eventId/return', async (req, res) => {
     );
 
     if (originalCheckout.rows.length === 0) {
-        return res.status(404).json({
-            success: false,
-            error: `No active (unreturned) checkout found with id ${eventId}.`
-        });
+        const err = new Error(`No active (unreturned) checkout found with id ${eventId}.`);
+        err.statusCode = 404;
+        return next(err);
     }
 
     const { rental_group_id, asset_id } = originalCheckout.rows[0];
@@ -347,10 +338,15 @@ app.post('/api/rentals/:eventId/return', async (req, res) => {
 
     } catch (err) {
         await client.query('ROLLBACK');
-        res.status(500).json({ success: false, error: err.message });
+        next(err);
     } finally {
         client.release();
     }
+});
+
+app.use((err, req, res, next) => {
+    const statusCode = err.statusCode || 500;
+    res.status(statusCode).json({ success: false, error: err.message });
 });
 
 app.listen(PORT, () => {
