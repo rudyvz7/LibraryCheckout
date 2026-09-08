@@ -365,10 +365,10 @@ app.post('/api/rentals/:eventId/return', async (req, res, next) => {
 });
 
 app.use((err, req, res, next) => {
+    console.error('Error caught:', err);
     const statusCode = err.statusCode || 500;
     res.status(statusCode).json({ success: false, error: err.message });
 });
-
 const http = require('http');
 const { Server } = require('socket.io');
 
