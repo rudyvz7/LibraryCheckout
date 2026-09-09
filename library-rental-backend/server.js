@@ -63,22 +63,18 @@ app.get('/api/rentals/current', async (req, res, next) => {
     try {
         const result = await pool.query(
             `SELECT 
-             re.event_id,
-                i.name AS item_name,
+                re.event_id,
+                COALESCE(i.name, r.room_number) AS item_name,
                 u.first_name,
                 u.last_name,
                 re.start_date,
                 re.end_date
-             FROM rental_events re
-             JOIN items i ON i.item_id = re.asset_id
-             JOIN users u ON u.user_id = re.user_id
-             WHERE re.event_type = 'checkout'
-             AND NOT EXISTS (
-                 SELECT 1
-                 FROM rental_events returns
-                 WHERE returns.rental_group_id = re.rental_group_id
-                 AND returns.event_type IN ('early_return', 'late_return')
-             )`
+            FROM rental_events re
+            LEFT JOIN items i ON i.item_id = re.asset_id
+            LEFT JOIN rooms r ON r.room_id = re.asset_id
+            JOIN users u ON u.user_id = re.user_id
+            WHERE re.event_type = 'checkout'
+            AND re.is_active = true`
         );
         res.json({ success: true, rentals: result.rows });
     } catch (err) {
@@ -90,23 +86,19 @@ app.get('/api/rentals/overdue', async (req, res, next) => {
     try {
         const result = await pool.query(
             `SELECT 
-             re.event_id,
-                i.name AS item_name,
+                re.event_id,
+                COALESCE(i.name, r.room_number) AS item_name,
                 u.first_name,
                 u.last_name,
                 re.start_date,
                 re.end_date
-             FROM rental_events re
-             JOIN items i ON i.item_id = re.asset_id
-             JOIN users u ON u.user_id = re.user_id
-             WHERE re.event_type = 'checkout'
-             AND re.end_date < NOW()
-             AND NOT EXISTS (
-                 SELECT 1
-                 FROM rental_events returns
-                 WHERE returns.rental_group_id = re.rental_group_id
-                 AND returns.event_type IN ('early_return', 'late_return')
-             )`
+            FROM rental_events re
+            LEFT JOIN items i ON i.item_id = re.asset_id
+            LEFT JOIN rooms r ON r.room_id = re.asset_id
+            JOIN users u ON u.user_id = re.user_id
+            WHERE re.event_type = 'checkout'
+            AND re.end_date < NOW()
+            AND re.is_active = true`
         );
         res.json({ success: true, rentals: result.rows });
     } catch (err) {
@@ -114,6 +106,25 @@ app.get('/api/rentals/overdue', async (req, res, next) => {
     }
 });
 
+app.get('/api/activity/recent', async (req, res, next) => {
+    try {
+        const result = await pool.query(
+            `SELECT re.event_id, re.event_type, re.fee_charged, re.start_date, 
+                   re.end_date, re.created_at,
+                   COALESCE(i.name, r.room_number) AS asset_name,
+                   u.first_name, u.last_name
+            FROM rental_events re
+            LEFT JOIN items i ON i.item_id = re.asset_id
+            LEFT JOIN rooms r ON r.room_id = re.asset_id
+            JOIN users u ON u.user_id = re.user_id
+            ORDER BY re.created_at DESC
+            LIMIT 20`
+        );
+        res.json({ success: true, activity: result.rows });
+    } catch (err) {
+        next(err);
+    }
+});
 
 app.get('/api/items/:itemId/history', async (req, res, next) => {
     const { itemId } = req.params;
@@ -166,6 +177,61 @@ app.get('/api/rentals/overdue-fees', async (req, res, next) => {
              )`
         );
         res.json({ success: true, fees: result.rows });
+    } catch (err) {
+        next(err);
+    }
+});
+
+app.get('/api/items/status', async (req, res, next) => {
+    try {
+        const result = await pool.query(
+            `SELECT 
+                i.item_id AS id, 
+                i.name, 
+                i.category, 
+                i.current_status,
+                i.requires_payment,
+                'item' AS asset_kind,
+                (
+                    SELECT re.end_date
+                    FROM rental_events re
+                    WHERE re.asset_id = i.item_id
+                    AND re.event_type IN ('checkout', 'extension')
+                    AND NOT EXISTS (
+                        SELECT 1 FROM rental_events returns
+                        WHERE returns.rental_group_id = re.rental_group_id
+                        AND returns.event_type IN ('early_return', 'late_return')
+                    )
+                    ORDER BY re.end_date DESC
+                    LIMIT 1
+                ) AS available_again_date
+            FROM items i
+            
+            UNION ALL
+            
+            SELECT 
+                r.room_id AS id,
+                r.room_number AS name,
+                'room' AS category,
+                r.current_status,
+                false AS requires_payment,
+                'room' AS asset_kind,
+                (
+                    SELECT re.end_date
+                    FROM rental_events re
+                    WHERE re.asset_id = r.room_id
+                    AND re.event_type IN ('checkout', 'extension')
+                    AND NOT EXISTS (
+                        SELECT 1 FROM rental_events returns
+                        WHERE returns.rental_group_id = re.rental_group_id
+                        AND returns.event_type IN ('early_return', 'late_return')
+                    )
+                    ORDER BY re.end_date DESC
+                    LIMIT 1
+                ) AS available_again_date
+            FROM rooms r`
+        );
+        res.json({ success: true, items: result.rows });
     } catch (err) {
         next(err);
     }
@@ -227,6 +293,34 @@ app.post('/api/rentals', async (req, res, next) => {
         if (paymentCheck.rows[0].stripe_customer_id === null) {
             const err = new Error('This item requires a payment method on file.');
             err.statusCode = 402;
+            return next(err);
+        }
+
+        const activeCheckoutCheck = await pool.query(
+            `SELECT event_id
+             FROM rental_events re
+             WHERE re.asset_id = $1
+             AND re.event_type IN ('checkout', 'extension')
+             AND NOT EXISTS (
+                 SELECT 1 FROM rental_events returns
+                 WHERE returns.rental_group_id = re.rental_group_id
+                 AND returns.event_type IN ('early_return', 'late_return')
+             )`,
+            [asset_id]
+        );
+
+        if (activeCheckoutCheck.rows.length > 0) {
+            const err = new Error('This item cannot be booked in advance while a previous rental is still outstanding. It must be returned first.');
+            err.statusCode = 409;
+            return next(err);
+        }
+    } else {
+        const durationMs = new Date(end_date) - new Date(start_date);
+        const durationHours = durationMs / (1000 * 60 * 60);
+        
+        if (durationHours > 3) {
+            const err = new Error('On-premise items and rooms can only be booked for a maximum of 3 hours.');
+            err.statusCode = 400;
             return next(err);
         }
     }
@@ -295,9 +389,11 @@ app.post('/api/rentals/:eventId/return', async (req, res, next) => {
     const { rental_group_id, asset_id } = originalCheckout.rows[0];
 
     const rentalDetails = await pool.query(
-        `SELECT re.end_date, i.replacement_value
+        `SELECT re.end_date, 
+                COALESCE(i.replacement_value, 0) AS replacement_value
          FROM rental_events re
-         JOIN items i ON i.item_id = re.asset_id
+         LEFT JOIN items i ON i.item_id = re.asset_id
+         LEFT JOIN rooms r ON r.room_id = re.asset_id
          WHERE re.event_id = $1`,
         [eventId]
     );
@@ -336,6 +432,11 @@ app.post('/api/rentals/:eventId/return', async (req, res, next) => {
              FROM rental_events
              WHERE event_id = $5`,
             [eventType, condition_after, condition_notes || null, totalFee, eventId]
+        );
+
+        await client.query(
+            `UPDATE rental_events SET is_active = false WHERE event_id = $1`,
+            [eventId]
         );
 
         const newStatus = condition_after === 'unusable' ? 'unusable' : 'available';
