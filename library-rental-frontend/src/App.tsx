@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import apiClient from './api/client';
-import { format } from 'date-fns';
+import { format, formatDistanceToNow } from 'date-fns';
 import { Button } from '@/components/ui/button';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -145,6 +145,7 @@ function BookableItem({
 function App() {
   const [currentRentals, setCurrentRentals] = useState<any[]>([]);
   const [overdueRentals, setOverdueRentals] = useState<any[]>([]);
+  const [recentActivity, setRecentActivity] = useState<any[]>([]);
   const [returnCondition, setReturnCondition] = useState<string>('good');
   const [returnStatus, setReturnStatus] = useState<string | null>(null);
   const [userId, setUserId] = useState<string>('1');
@@ -183,6 +184,15 @@ function App() {
     }
   };
 
+  const fetchRecentActivity = async () => {
+    try {
+      const response = await apiClient.get('/api/activity/recent');
+      setRecentActivity(response.data.activity);
+    } catch (err) {
+      console.error('Failed to fetch recent activity:', err);
+    }
+  };
+
   const handleCheckout = async (itemId: number, start: Date, end: Date) => {
     try {
       const response = await apiClient.post('/api/rentals', {
@@ -193,6 +203,7 @@ function App() {
       });
       setCheckoutStatus(`Booked! Event ID: ${response.data.event_id}`);
       fetchItemStatuses();
+      fetchRecentActivity();
     } catch (err: any) {
       setCheckoutStatus(err.response?.data?.error || 'Checkout failed.');
     }
@@ -225,6 +236,7 @@ function App() {
       fetchCurrentRentals();
       fetchOverdueRentals();
       fetchItemStatuses();
+      fetchRecentActivity();
     } catch (err: any) {
       setReturnStatus(err.response?.data?.error || 'Return failed.');
     }
@@ -234,6 +246,7 @@ function App() {
     fetchCurrentRentals();
     fetchOverdueRentals();
     fetchItemStatuses();
+    fetchRecentActivity();
   }, []);
 
   useEffect(() => {
@@ -242,6 +255,7 @@ function App() {
       fetchCurrentRentals();
       fetchOverdueRentals();
       fetchItemStatuses();
+      fetchRecentActivity();
     });
 
     return () => {
@@ -258,6 +272,43 @@ function App() {
           A payment method on file is required to check out items that leave the premises (cameras, keyboards, mice, etc.). Rooms and on-site equipment do not require payment.
         </AlertDescription>
       </Alert>
+
+      <div className="mb-8 p-5 border rounded-lg bg-slate-50 shadow-sm">
+        <h2 className="text-lg font-bold mb-1">Live System Activity</h2>
+        <p className="text-sm text-muted-foreground mb-4">Real-time events streamed via WebSocket — no page refresh needed.</p>
+        <div className="max-h-[300px] overflow-y-auto pr-2 space-y-2">
+          {recentActivity.map((activity) => {
+            let actionText = activity.event_type;
+            if (activity.event_type === 'checkout') actionText = 'checked out by';
+            if (activity.event_type === 'early_return' || activity.event_type === 'late_return') actionText = 'returned by';
+
+            const fee = activity.fee_charged ? parseFloat(activity.fee_charged) : 0;
+
+            return (
+              <div key={activity.event_id} className="text-sm p-3 bg-white border rounded-md flex justify-between items-center shadow-sm">
+                <div>
+                  <span className="font-semibold">{activity.asset_name}</span>{' '}
+                  <span className="text-muted-foreground">{actionText}</span>{' '}
+                  <span className="font-medium">{activity.first_name} {activity.last_name}</span>
+                </div>
+                <div className="flex items-center gap-3">
+                  {fee > 0 && (
+                    <Badge variant="destructive" className="bg-red-100 text-red-800 border-red-200 hover:bg-red-100">
+                      ${fee.toFixed(2)} fee
+                    </Badge>
+                  )}
+                  <span className="text-xs text-muted-foreground whitespace-nowrap">
+                    {formatDistanceToNow(new Date(activity.created_at), { addSuffix: true })}
+                  </span>
+                </div>
+              </div>
+            );
+          })}
+          {recentActivity.length === 0 && (
+            <p className="text-sm text-muted-foreground text-center py-4">No recent activity.</p>
+          )}
+        </div>
+      </div>
 
       <Tabs defaultValue="browse" className="w-full">
         <TabsList className="grid w-full grid-cols-2 mb-8">
@@ -418,11 +469,11 @@ function App() {
                     );
                   })}
                   {overdueRentals.length === 0 && (
-                    <TableRow>
-                      <TableCell colSpan={4} className="h-24 text-center text-muted-foreground">
-                        No overdue items.
-                      </TableCell>
-                    </TableRow>
+                     <TableRow>
+                       <TableCell colSpan={4} className="h-24 text-center text-muted-foreground">
+                         No overdue items.
+                       </TableCell>
+                     </TableRow>
                   )}
                 </TableBody>
               </Table>

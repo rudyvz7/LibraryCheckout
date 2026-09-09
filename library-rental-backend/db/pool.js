@@ -9,5 +9,8 @@ const pool = new Pool({
     idleTimeoutMillis: 30000,
     connectionTimeoutMillis: 5000
 });
+pool.on('connect', (client) => {
+    client.query('SET TIME ZONE "UTC"');
+});
 
 module.exports = pool;
