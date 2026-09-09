@@ -8,8 +8,8 @@ The Library Rental System is a full-stack application designed to manage the boo
 * **Deployment:** Railway (backend), Vercel (frontend), Supabase (database)
 
 ## Live Demo
-* **Live Demo (frontend):** https://library-rental-backend-smoky.vercel.app/ — click this to use the app
-* **Backend Health Check:** librarycheckout-production.up.railway.app/health — a live JSON response confirming the backend and database are running (the bare backend root URL will show "Cannot GET /", which is expected — it's an API server, not a webpage)
+* **Live Demo (frontend):** https://library-rental-backend-smoky.vercel.app/ —> click this to use the app
+* **Backend Health Check:** librarycheckout-production.up.railway.app/health —> a live JSON response confirming the backend and database are running (the bare backend root URL will show "Cannot GET /", which is expected — it's an API server, not a webpage)
 
 ## Key Features
 * **Real-time availability tracking** with WebSocket-based live updates (no page refresh needed)
