@@ -1,5 +1,6 @@
 // db/pool.js
-const { Pool } = require('pg');
+const { Pool, types } = require('pg');
+types.setTypeParser(1114, (str) => new Date(str + 'Z'));
 require('dotenv').config();
 
 const pool = new Pool({
