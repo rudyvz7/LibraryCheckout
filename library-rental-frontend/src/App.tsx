@@ -383,7 +383,7 @@ function App() {
           <div className="space-y-4">
             <div className="flex flex-col gap-2 max-w-sm">
               <label className="text-sm font-medium">Return Condition</label>
-              <Select value={returnCondition} onValueChange={setReturnCondition}>
+              <Select value={returnCondition} onValueChange={(val) => setReturnCondition(val || 'good')}>
                 <SelectTrigger>
                   <SelectValue placeholder="Select condition" />
                 </SelectTrigger>
