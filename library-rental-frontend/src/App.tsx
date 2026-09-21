@@ -1,585 +1,80 @@
-import { useState, useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import apiClient from './api/client';
 import { format, formatDistanceToNow } from 'date-fns';
+import { io } from 'socket.io-client';
+import {
+  Activity, ArrowUpRight, BookOpen, CalendarDays, Check, ChevronRight, CircleAlert,
+  Clock3, Command, Computer, Filter, Library, MessageCircle, Package, Radio,
+  ShieldCheck, Sparkles, UserRound
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
-import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-
-import { io } from 'socket.io-client';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 
 const socket = io(import.meta.env.VITE_API_URL);
+type Item = any;
+type ChatMessage = { role: 'user' | 'assistant'; text: string };
+type Filters = { room: boolean; item: boolean; available: boolean; checkedOut: boolean };
 
-function BookableItem({
-  item,
-  onCheckout
-}: {
-  item: any,
-  onCheckout: (itemId: number, start: Date, end: Date) => void
-}) {
-  const [startDate, setStartDate] = useState<Date | undefined>(undefined);
-  const [startTime, setStartTime] = useState<string>('09:00');
-  const [endDate, setEndDate] = useState<Date | undefined>(undefined);
-  const [endTime, setEndTime] = useState<string>('10:00');
-
-  return (
-    <AccordionItem value={`item-${item.id}`}>
-      <AccordionTrigger className="hover:no-underline hover:bg-slate-50 px-4 rounded-md">
-        <div className="flex flex-wrap items-center gap-4">
-          <span className="font-semibold">{item.name}</span>
-          <Badge variant="secondary">{item.category}</Badge>
-
-          {item.requires_payment === false ? (
-            <Badge variant="outline">On-Premise</Badge>
-          ) : (
-            <Badge variant="outline">Off-Premise</Badge>
-          )}
-
-          {(() => {
-            if (item.current_status === 'available') {
-              return <Badge variant="default" className="bg-green-600 hover:bg-green-700">Available</Badge>;
-            } else {
-              return (
-                <Badge variant="destructive">
-                  {item.available_again_date
-                    ? `Back ${format(new Date(item.available_again_date), 'PPP')}`
-                    : "Status unknown"}
-                </Badge>
-              );
-            }
-          })()}
-
-          {item.requires_payment ? (
-            item.current_status === 'checked_out' && (
-              <Badge variant="secondary">Return required first</Badge>
-            )
-          ) : (
-            <Badge variant="secondary">Bookable in advance</Badge>
-          )}
-
-          {item.current_condition && item.current_condition !== 'good' && (
-            <Badge variant="outline" className="text-amber-600 border-amber-600 bg-amber-50">
-              Condition: {item.current_condition}
-            </Badge>
-          )}
-
-        </div>
-      </AccordionTrigger>
-      <AccordionContent className="px-4 py-4 space-y-4 border-t bg-slate-50/50">
-        <div className="flex flex-wrap gap-4 items-end">
-          <div className="flex flex-col gap-2">
-            <label className="text-sm font-medium">Start Date & Time</label>
-            <div className="flex gap-2">
-              <Popover>
-                <PopoverTrigger className="inline-flex h-8 w-[160px] items-center justify-start rounded-lg border border-border bg-background px-2.5 text-left text-sm font-normal hover:bg-muted">
-                  {startDate ? format(startDate, 'PPP') : 'Pick a start date'}
-                </PopoverTrigger>
-                <PopoverContent className="w-auto p-0">
-                  <Calendar
-                    mode="single"
-                    selected={startDate}
-                    onSelect={setStartDate}
-                  />
-                </PopoverContent>
-              </Popover>
-              <Input
-                type="time"
-                value={startTime}
-                onChange={(e) => setStartTime(e.target.value)}
-                className="w-[120px] bg-background"
-              />
-            </div>
-          </div>
-
-          <div className="flex flex-col gap-2">
-            <label className="text-sm font-medium">End Date & Time</label>
-            <div className="flex gap-2">
-              <Popover>
-                <PopoverTrigger className="inline-flex h-8 w-[160px] items-center justify-start rounded-lg border border-border bg-background px-2.5 text-left text-sm font-normal hover:bg-muted">
-                  {endDate ? format(endDate, 'PPP') : 'Pick an end date'}
-                </PopoverTrigger>
-                <PopoverContent className="w-auto p-0">
-                  <Calendar
-                    mode="single"
-                    selected={endDate}
-                    onSelect={setEndDate}
-                  />
-                </PopoverContent>
-              </Popover>
-              <Input
-                type="time"
-                value={endTime}
-                onChange={(e) => setEndTime(e.target.value)}
-                className="w-[120px] bg-background"
-              />
-            </div>
-          </div>
-
-          <Button onClick={() => {
-            if (startDate && endDate && startTime && endTime) {
-              const [startH, startM] = startTime.split(':').map(Number);
-              const finalStart = new Date(startDate);
-              finalStart.setHours(startH, startM, 0, 0);
-
-              const [endH, endM] = endTime.split(':').map(Number);
-              const finalEnd = new Date(endDate);
-              finalEnd.setHours(endH, endM, 0, 0);
-
-              onCheckout(item.id, finalStart, finalEnd);
-            }
-          }} disabled={!startDate || !endDate || !startTime || !endTime}>
-            Book This Item
-          </Button>
-        </div>
-      </AccordionContent>
-    </AccordionItem>
-  );
+function StatusPill({ available, children }: { available: boolean; children: React.ReactNode }) {
+  return <span className={`status-pill ${available ? 'status-pill--live' : 'status-pill--muted'}`}><span className="status-dot" />{children}</span>;
 }
 
-type ChatMessage = {
-  role: 'user' | 'assistant';
-  text: string;
-};
-
-function ChatTab() {
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [input, setInput] = useState('');
-  const [loading, setLoading] = useState(false);
-  const bottomRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
-
-  const sendMessage = async () => {
-    const question = input.trim();
-    if (!question || loading) return;
-
-    setMessages(prev => [...prev, { role: 'user', text: question }]);
-    setInput('');
-    setLoading(true);
-
-    try {
-      const response = await apiClient.post('/api/chat', { question });
-      setMessages(prev => [...prev, { role: 'assistant', text: response.data.answer }]);
-    } catch {
-      setMessages(prev => [...prev, { role: 'assistant', text: 'Sorry, the chat service is unavailable right now.' }]);
-    } finally {
-      setLoading(false);
-    }
+function BookableItem({ item, onCheckout }: { item: Item; onCheckout: (id: number, start: Date, end: Date) => void }) {
+  const [startDate, setStartDate] = useState<Date>();
+  const [endDate, setEndDate] = useState<Date>();
+  const [startTime, setStartTime] = useState('09:00');
+  const [endTime, setEndTime] = useState('10:00');
+  const available = item.current_status === 'available';
+  const submit = () => {
+    if (!startDate || !endDate) return;
+    const start = new Date(startDate); const end = new Date(endDate);
+    const [sh, sm] = startTime.split(':').map(Number); const [eh, em] = endTime.split(':').map(Number);
+    start.setHours(sh, sm, 0, 0); end.setHours(eh, em, 0, 0); onCheckout(item.id, start, end);
   };
-
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') sendMessage();
-  };
-
-  return (
-    <div className="flex flex-col h-[520px]">
-      <p className="text-sm text-muted-foreground mb-4">
-        Ask anything about the library system — booking rules, available equipment, fees, and more.
-        Answers are generated from real inventory and policy data.
-      </p>
-
-      <div className="flex-1 overflow-y-auto space-y-3 pr-1 mb-4">
-        {messages.length === 0 && (
-          <div className="text-sm text-muted-foreground text-center mt-16">
-            Try asking: "What laptops do you have?" or "What's the late fee formula?"
-          </div>
-        )}
-        {messages.map((msg, i) => (
-          <div
-            key={i}
-            className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
-          >
-            <div
-              className={`max-w-[80%] rounded-lg px-4 py-2 text-sm whitespace-pre-wrap ${msg.role === 'user'
-                  ? 'bg-primary text-primary-foreground'
-                  : 'bg-muted text-foreground border'
-                }`}
-            >
-              {msg.text}
-            </div>
-          </div>
-        ))}
-        {loading && (
-          <div className="flex justify-start">
-            <div className="bg-muted border rounded-lg px-4 py-2 text-sm text-muted-foreground">
-              Thinking…
-            </div>
-          </div>
-        )}
-        <div ref={bottomRef} />
+  return <AccordionItem value={`item-${item.id}`} className="inventory-row">
+    <AccordionTrigger className="px-5 py-4 hover:no-underline">
+      <div className="flex w-full flex-wrap items-center gap-4 pr-4 text-left">
+        <div className="item-icon"><Package /></div><div className="min-w-[170px] flex-1"><div className="font-medium text-foreground">{item.name}</div><div className="mt-1 text-xs text-muted-foreground">{item.asset_kind === 'room' ? 'Space' : 'Equipment'} · {item.category}</div></div>
+        <div className="flex flex-wrap items-center gap-2"><StatusPill available={available}>{available ? 'Available' : item.available_again_date ? `Back ${format(new Date(item.available_again_date), 'MMM d')}` : 'Unavailable'}</StatusPill><Badge variant="outline" className="badge-soft">{item.requires_payment ? 'Off-premise' : 'On-premise'}</Badge></div>
       </div>
-
-      <div className="flex gap-2">
-        <Input
-          value={input}
-          onChange={e => setInput(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder="Ask about rules, inventory, fees…"
-          className="bg-background"
-          disabled={loading}
-        />
-        <Button onClick={sendMessage} disabled={loading || !input.trim()}>
-          Send
-        </Button>
+    </AccordionTrigger>
+    <AccordionContent className="border-t border-white/8 bg-white/[0.025] px-5 py-5">
+      <div className="flex flex-wrap items-end gap-4">
+        <div className="field"><label htmlFor={`start-${item.id}`}>Start date</label><Popover><PopoverTrigger id={`start-${item.id}`} className="date-trigger"><CalendarDays />{startDate ? format(startDate, 'MMM d, yyyy') : 'Select date'}</PopoverTrigger><PopoverContent className="w-auto p-0"><Calendar mode="single" selected={startDate} onSelect={setStartDate} /></PopoverContent></Popover></div>
+        <div className="field"><label htmlFor={`start-time-${item.id}`}>Time</label><Input id={`start-time-${item.id}`} type="time" value={startTime} onChange={e => setStartTime(e.target.value)} /></div>
+        <div className="field"><label htmlFor={`end-${item.id}`}>End date</label><Popover><PopoverTrigger id={`end-${item.id}`} className="date-trigger"><CalendarDays />{endDate ? format(endDate, 'MMM d, yyyy') : 'Select date'}</PopoverTrigger><PopoverContent className="w-auto p-0"><Calendar mode="single" selected={endDate} onSelect={setEndDate} /></PopoverContent></Popover></div>
+        <div className="field"><label htmlFor={`end-time-${item.id}`}>Time</label><Input id={`end-time-${item.id}`} type="time" value={endTime} onChange={e => setEndTime(e.target.value)} /></div>
+        <Button className="glow-button" onClick={submit} disabled={!startDate || !endDate}><CalendarDays data-icon="inline-start" /> Reserve item</Button>
       </div>
-    </div>
-  );
+    </AccordionContent>
+  </AccordionItem>;
 }
 
-function App() {
-  const [currentRentals, setCurrentRentals] = useState<any[]>([]);
-  const [overdueRentals, setOverdueRentals] = useState<any[]>([]);
-  const [recentActivity, setRecentActivity] = useState<any[]>([]);
-  const [returnCondition, setReturnCondition] = useState<string>('good');
-  const [returnStatus, setReturnStatus] = useState<string | null>(null);
-  const [userId, setUserId] = useState<string>('1');
-  const [checkoutStatus, setCheckoutStatus] = useState<string | null>(null);
-  const [itemStatuses, setItemStatuses] = useState<any[]>([]);
-
-  const [activeFilters, setActiveFilters] = useState({
-    room: false,
-    item: false,
-    available: false,
-    checkedOut: false
-  });
-
-  const toggleFilter = (key: keyof typeof activeFilters) => {
-    setActiveFilters(prev => ({ ...prev, [key]: !prev[key] }));
-  };
-
-  const filteredItems = itemStatuses.filter(item => {
-    const typePass = (!activeFilters.room && !activeFilters.item) ||
-      (activeFilters.room && item.asset_kind === 'room') ||
-      (activeFilters.item && item.asset_kind === 'item');
-
-    const statusPass = (!activeFilters.available && !activeFilters.checkedOut) ||
-      (activeFilters.available && item.current_status === 'available') ||
-      (activeFilters.checkedOut && item.current_status !== 'available');
-
-    return typePass && statusPass;
-  });
-
-  const fetchItemStatuses = async () => {
-    try {
-      const response = await apiClient.get('/api/items/status');
-      setItemStatuses(response.data.items);
-    } catch (err) {
-      console.error('Failed to fetch item statuses:', err);
-    }
-  };
-
-  const fetchRecentActivity = async () => {
-    try {
-      const response = await apiClient.get('/api/activity/recent');
-      setRecentActivity(response.data.activity);
-    } catch (err) {
-      console.error('Failed to fetch recent activity:', err);
-    }
-  };
-
-  const handleCheckout = async (itemId: number, start: Date, end: Date) => {
-    try {
-      const response = await apiClient.post('/api/rentals', {
-        asset_id: itemId,
-        user_id: parseInt(userId),
-        start_date: format(start, "yyyy-MM-dd'T'HH:mm:ss"),
-        end_date: format(end, "yyyy-MM-dd'T'HH:mm:ss")
-      });
-      setCheckoutStatus(`Booked! Event ID: ${response.data.event_id}`);
-      fetchItemStatuses();
-      fetchRecentActivity();
-    } catch (err: any) {
-      setCheckoutStatus(err.response?.data?.error || 'Checkout failed.');
-    }
-  };
-
-  const fetchCurrentRentals = async () => {
-    try {
-      const response = await apiClient.get('/api/rentals/current');
-      setCurrentRentals(response.data.rentals);
-    } catch (err) {
-      console.error('Failed to fetch current rentals:', err);
-    }
-  };
-
-  const fetchOverdueRentals = async () => {
-    try {
-      const response = await apiClient.get('/api/rentals/overdue');
-      setOverdueRentals(response.data.rentals);
-    } catch (err) {
-      console.error('Failed to fetch overdue rentals:', err);
-    }
-  };
-
-  const handleReturn = async (eventId: number) => {
-    try {
-      const response = await apiClient.post(`/api/rentals/${eventId}/return`, {
-        condition_after: returnCondition
-      });
-      setReturnStatus(`Returned! Total fee: $${response.data.total_fee}`);
-      fetchCurrentRentals();
-      fetchOverdueRentals();
-      fetchItemStatuses();
-      fetchRecentActivity();
-    } catch (err: any) {
-      setReturnStatus(err.response?.data?.error || 'Return failed.');
-    }
-  };
-
-  useEffect(() => {
-    fetchCurrentRentals();
-    fetchOverdueRentals();
-    fetchItemStatuses();
-    fetchRecentActivity();
-  }, []);
-
-  useEffect(() => {
-    socket.on('inventory-updated', () => {
-      console.log('WebSocket fired.');
-      fetchCurrentRentals();
-      fetchOverdueRentals();
-      fetchItemStatuses();
-      fetchRecentActivity();
-    });
-
-    return () => {
-      socket.off('inventory-updated');
-    };
-  }, []);
-
-  return (
-    <div className="container mx-auto p-8 max-w-5xl">
-      <h1 className="text-3xl font-bold mb-6">Library Rental System</h1>
-
-      <Alert className="mb-6 bg-blue-50 border-blue-200">
-        <AlertDescription className="text-blue-800 font-medium">
-          A payment method on file is required to check out items that leave the premises (cameras, keyboards, mice, etc.). Rooms and on-site equipment do not require payment.
-        </AlertDescription>
-      </Alert>
-
-      <div className="mb-8 p-5 border rounded-lg bg-slate-50 shadow-sm">
-        <h2 className="text-lg font-bold mb-1">Live System Activity</h2>
-        <p className="text-sm text-muted-foreground mb-4">Real-time events streamed via WebSocket — no page refresh needed.</p>
-        <div className="max-h-[300px] overflow-y-auto pr-2 space-y-2">
-          {recentActivity.map((activity) => {
-            let actionText = activity.event_type;
-            if (activity.event_type === 'checkout') actionText = 'checked out by';
-            if (activity.event_type === 'early_return' || activity.event_type === 'late_return') actionText = 'returned by';
-
-            const fee = activity.fee_charged ? parseFloat(activity.fee_charged) : 0;
-
-            return (
-              <div key={activity.event_id} className="text-sm p-3 bg-white border rounded-md flex justify-between items-center shadow-sm">
-                <div>
-                  <span className="font-semibold">{activity.asset_name}</span>{' '}
-                  <span className="text-muted-foreground">{actionText}</span>{' '}
-                  <span className="font-medium">{activity.first_name} {activity.last_name}</span>
-                </div>
-                <div className="flex items-center gap-3">
-                  {fee > 0 && (
-                    <Badge variant="destructive" className="bg-red-100 text-red-800 border-red-200 hover:bg-red-100">
-                      ${fee.toFixed(2)} fee
-                    </Badge>
-                  )}
-                  <span className="text-xs text-muted-foreground whitespace-nowrap">
-                    {formatDistanceToNow(new Date(activity.created_at), { addSuffix: true })}
-                  </span>
-                </div>
-              </div>
-            );
-          })}
-          {recentActivity.length === 0 && (
-            <p className="text-sm text-muted-foreground text-center py-4">No recent activity.</p>
-          )}
-        </div>
-      </div>
-
-      <Tabs defaultValue="browse" className="w-full">
-        <TabsList className="grid w-full grid-cols-3 mb-8">
-          <TabsTrigger value="browse">Browse & Book</TabsTrigger>
-          <TabsTrigger value="staff">Staff Dashboard</TabsTrigger>
-          <TabsTrigger value="ask">Ask</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="browse" className="space-y-6">
-          <Alert className="bg-amber-50 border-amber-200">
-            <AlertDescription className="text-amber-800 font-medium">
-              Cameras, keyboards, and other off-premises equipment cannot be booked in advance while currently checked out — they must be returned first. Rooms and on-site equipment (laptops, study rooms) CAN be reserved for future dates even while occupied, since staff can manage handoffs in person.
-            </AlertDescription>
-          </Alert>
-
-          <div className="flex flex-col gap-2 max-w-sm">
-            <label className="text-sm font-medium">User ID</label>
-            <Input
-              type="text"
-              value={userId}
-              onChange={(e) => setUserId(e.target.value)}
-              placeholder="User ID"
-              className="bg-background"
-            />
-          </div>
-
-          <div className="flex items-center gap-2 flex-wrap mb-4">
-            <span className="text-sm font-medium mr-2">Filters:</span>
-            <Button
-              variant={activeFilters.room ? "default" : "outline"}
-              size="sm"
-              onClick={() => toggleFilter('room')}
-            >
-              Room
-            </Button>
-            <Button
-              variant={activeFilters.item ? "default" : "outline"}
-              size="sm"
-              onClick={() => toggleFilter('item')}
-            >
-              Item
-            </Button>
-            <Button
-              variant={activeFilters.available ? "default" : "outline"}
-              size="sm"
-              onClick={() => toggleFilter('available')}
-            >
-              Available Now
-            </Button>
-            <Button
-              variant={activeFilters.checkedOut ? "default" : "outline"}
-              size="sm"
-              onClick={() => toggleFilter('checkedOut')}
-            >
-              Checked Out
-            </Button>
-          </div>
-
-          {checkoutStatus && <p className="text-green-600 font-medium">{checkoutStatus}</p>}
-
-          <Accordion multiple={false} className="w-full">
-            {filteredItems.map((item) => (
-              <BookableItem
-                key={item.id}
-                item={item}
-                onCheckout={handleCheckout}
-              />
-            ))}
-          </Accordion>
-        </TabsContent>
-
-        <TabsContent value="staff" className="space-y-8">
-          <div className="space-y-4">
-            <div className="flex flex-col gap-2 max-w-sm">
-              <label className="text-sm font-medium">Return Condition</label>
-              <Select value={returnCondition} onValueChange={(val) => setReturnCondition(val || 'good')}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select condition" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="good">Good</SelectItem>
-                  <SelectItem value="lightly_damaged_usable">Lightly Damaged (usable)</SelectItem>
-                  <SelectItem value="unusable">Unusable</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            {returnStatus && <p className="text-sm font-medium text-green-600">{returnStatus}</p>}
-          </div>
-
-          <div className="space-y-4">
-            <h3 className="text-xl font-semibold tracking-tight">Currently Checked Out</h3>
-            <div className="rounded-md border">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Item</TableHead>
-                    <TableHead>User</TableHead>
-                    <TableHead>Due</TableHead>
-                    <TableHead className="w-[100px]">Action</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {currentRentals.map((rental) => (
-                    <TableRow key={rental.event_id}>
-                      <TableCell className="font-medium">{rental.item_name}</TableCell>
-                      <TableCell>{rental.first_name} {rental.last_name}</TableCell>
-                      <TableCell>{format(new Date(rental.end_date), 'PPP')}</TableCell>
-                      <TableCell>
-                        <Button variant="outline" size="sm" onClick={() => handleReturn(rental.event_id)}>Return</Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                  {currentRentals.length === 0 && (
-                    <TableRow>
-                      <TableCell colSpan={4} className="h-24 text-center text-muted-foreground">
-                        No items currently checked out.
-                      </TableCell>
-                    </TableRow>
-                  )}
-                </TableBody>
-              </Table>
-            </div>
-          </div>
-
-          <div className="space-y-4">
-            <h3 className="text-xl font-semibold tracking-tight text-destructive">Overdue</h3>
-            <div className="rounded-md border border-destructive/20">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Item / Room</TableHead>
-                    <TableHead>User</TableHead>
-                    <TableHead>Was Due</TableHead>
-                    <TableHead className="w-[100px]">Action</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {overdueRentals.map((rental) => {
-                    const isRoom = itemStatuses.find(i => i.name === rental.item_name)?.asset_kind === 'room';
-
-                    return (
-                      <TableRow key={rental.event_id}>
-                        {isRoom ? (
-                          <TableCell colSpan={3} className="font-medium text-amber-700">
-                            Room {rental.item_name} — was due at {format(new Date(rental.end_date), 'p')}, please check occupancy. (User: {rental.first_name} {rental.last_name})
-                          </TableCell>
-                        ) : (
-                          <>
-                            <TableCell className="font-medium">{rental.item_name}</TableCell>
-                            <TableCell>{rental.first_name} {rental.last_name}</TableCell>
-                            <TableCell className="text-destructive font-medium">{format(new Date(rental.end_date), 'PPP')}</TableCell>
-                          </>
-                        )}
-                        <TableCell>
-                          <Button variant="outline" size="sm" onClick={() => handleReturn(rental.event_id)}>Return</Button>
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                  {overdueRentals.length === 0 && (
-                    <TableRow>
-                      <TableCell colSpan={4} className="h-24 text-center text-muted-foreground">
-                        No overdue items.
-                      </TableCell>
-                    </TableRow>
-                  )}
-                </TableBody>
-              </Table>
-            </div>
-          </div>
-        </TabsContent>
-
-        <TabsContent value="ask">
-          <ChatTab />
-        </TabsContent>
-      </Tabs>
-    </div>
-  );
+function BrowseTab({ items, filters, toggleFilter, userId, setUserId, onCheckout, status }: { items: Item[]; filters: Filters; toggleFilter: (key: keyof Filters) => void; userId: string; setUserId: (v: string) => void; onCheckout: (id: number, start: Date, end: Date) => void; status: string | null }) {
+  const filtered = items.filter(item => ((!filters.room && !filters.item) || (filters.room && item.asset_kind === 'room') || (filters.item && item.asset_kind === 'item')) && ((!filters.available && !filters.checkedOut) || (filters.available && item.current_status === 'available') || (filters.checkedOut && item.current_status !== 'available')));
+  return <div className="page-stack">
+    <section className="hero-card browse-hero"><div className="hero-orb" /><div className="relative z-10 max-w-2xl"><div className="eyebrow"><Sparkles /> LIVE INVENTORY</div><h2>Find the right tools for your next project.</h2><p>Reserve equipment and rooms in a few clicks. Availability updates in real time across the library.</p><div className="hero-stats"><div><strong>{items.length}</strong><span>Total assets</span></div><div><strong>{items.filter(i => i.current_status === 'available').length}</strong><span>Available now</span></div><div><strong>24/7</strong><span>Self-service</span></div></div></div><div className="hero-visual"><div className="visual-card visual-card-back" /><div className="visual-card visual-card-front"><Computer /><span>Equipment<br /><b>ready to reserve</b></span><StatusPill available>Online</StatusPill></div></div></section>
+    <Alert className="glass-alert"><ShieldCheck /><AlertDescription><strong>Good to know</strong> · Off-premise equipment requires a payment method on file. Rooms and on-site equipment can be reserved in advance.</AlertDescription></Alert>
+    <div className="section-heading"><div><div className="eyebrow">CATALOG</div><h3>Browse inventory</h3><p>Filter by type or availability to find what you need.</p></div><div className="user-field"><UserRound /><Input value={userId} onChange={e => setUserId(e.target.value)} aria-label="User ID" placeholder="User ID" /></div></div>
+    <div className="filter-bar"><Filter /><span>Show</span>{(['room', 'item', 'available', 'checkedOut'] as const).map(key => <Button key={key} size="sm" variant={filters[key] ? 'default' : 'outline'} onClick={() => toggleFilter(key)}>{key === 'checkedOut' ? 'Checked out' : key === 'available' ? 'Available now' : key === 'room' ? 'Rooms' : 'Equipment'}</Button>)}<span className="result-count">{filtered.length} results</span></div>
+    {status && <div className="success-line"><Check /> {status}</div>}
+    <div className="inventory-card"><Accordion multiple={false}>{filtered.map(item => <BookableItem item={item} key={item.id} onCheckout={onCheckout} />)}</Accordion>{filtered.length === 0 && <div className="empty-state">No inventory matches these filters.</div>}</div>
+  </div>;
 }
 
-export default App;
+function StaffTab({ rentals, overdue, condition, setCondition, onReturn, status, items }: any) { return <div className="page-stack"><div className="section-heading"><div><div className="eyebrow">OPERATIONS</div><h2>Staff dashboard</h2><p>Keep every handoff moving with a clear view of the floor.</p></div><div className="metric-card"><span>Open rentals</span><strong>{rentals.length}</strong><Clock3 /></div><div className="metric-card metric-card--alert"><span>Overdue</span><strong>{overdue.length}</strong><CircleAlert /></div></div><div className="glass-card return-toolbar"><div><h3>Process a return</h3><p>Choose the condition before marking an item back in.</p></div><Select value={condition} onValueChange={setCondition}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="good">Good condition</SelectItem><SelectItem value="lightly_damaged_usable">Lightly damaged</SelectItem><SelectItem value="unusable">Unusable</SelectItem></SelectContent></Select>{status && <span className="success-line"><Check /> {status}</span>}</div><RentalTable title="Currently checked out" rentals={rentals} onReturn={onReturn} /><RentalTable title="Overdue attention" rentals={overdue} onReturn={onReturn} overdue items={items} /></div> }
+function RentalTable({ title, rentals, onReturn, overdue, items }: any) { return <div className={`glass-card table-card ${overdue ? 'table-card--alert' : ''}`}><div className="card-title-row"><div><h3>{title}</h3><p>{overdue ? 'These rentals need attention.' : 'Active reservations on the floor.'}</p></div><Badge variant="outline">{rentals.length} {rentals.length === 1 ? 'rental' : 'rentals'}</Badge></div><Table><TableHeader><TableRow><TableHead>Item</TableHead><TableHead>User</TableHead><TableHead>{overdue ? 'Was due' : 'Due'}</TableHead><TableHead /></TableRow></TableHeader><TableBody>{rentals.map((r: any) => { const isRoom = items?.find((i: any) => i.name === r.item_name)?.asset_kind === 'room'; return <TableRow key={r.event_id}><TableCell className="font-medium">{isRoom ? `Room ${r.item_name}` : r.item_name}</TableCell><TableCell>{r.first_name} {r.last_name}</TableCell><TableCell className={overdue ? 'text-destructive' : ''}>{format(new Date(r.end_date), 'MMM d, yyyy')}</TableCell><TableCell><Button variant="outline" size="sm" onClick={() => onReturn(r.event_id)}>Return</Button></TableCell></TableRow>})}{rentals.length === 0 && <TableRow><TableCell colSpan={4} className="h-24 text-center text-muted-foreground">Nothing to show here.</TableCell></TableRow>}</TableBody></Table></div> }
+
+function ActivityTab({ activity }: { activity: any[] }) { return <div className="page-stack"><div className="section-heading"><div><div className="eyebrow">AUDIT TRAIL</div><h2>Activity feed</h2><p>A live timeline of every checkout, return, and fee.</p></div><StatusPill available>Live updates</StatusPill></div><div className="glass-card activity-card">{activity.map((a: any) => { const action = a.event_type === 'checkout' ? 'checked out' : 'returned'; const fee = Number(a.fee_charged || 0); return <div className="activity-row" key={a.event_id}><div className="activity-icon"><Activity /></div><div className="flex-1"><p><strong>{a.asset_name}</strong> {action} by <strong>{a.first_name} {a.last_name}</strong></p><span>{formatDistanceToNow(new Date(a.created_at), { addSuffix: true })}</span></div>{fee > 0 && <Badge variant="destructive">${fee.toFixed(2)} fee</Badge>}<ChevronRight /></div>})}{activity.length === 0 && <div className="empty-state">No recent activity.</div>}</div></div> }
+
+function AskTab() { const [messages, setMessages] = useState<ChatMessage[]>([]); const [input, setInput] = useState(''); const [loading, setLoading] = useState(false); const bottom = useRef<HTMLDivElement>(null); useEffect(() => bottom.current?.scrollIntoView({ behavior: 'smooth' }), [messages]); const send = async () => { const q = input.trim(); if (!q || loading) return; setMessages(m => [...m, { role: 'user', text: q }]); setInput(''); setLoading(true); try { const r = await apiClient.post('/api/chat', { question: q }); setMessages(m => [...m, { role: 'assistant', text: r.data.answer }]); } catch { setMessages(m => [...m, { role: 'assistant', text: 'The assistant is unavailable right now.' }]); } finally { setLoading(false); } }; return <div className="page-stack"><div className="section-heading"><div><div className="eyebrow">LIBRARY COPILOT</div><h2>Ask anything.</h2><p>Answers grounded in inventory, policies, and real library data.</p></div><div className="ai-mark"><Sparkles /></div></div><div className="glass-card chat-card"><div className="chat-messages">{messages.length === 0 && <div className="chat-empty"><div className="ai-mark"><MessageCircle /></div><h3>What can I help you find?</h3><p>Try asking about available laptops, booking rules, or late fees.</p><div className="suggestions"><button onClick={() => setInput('What laptops are available?')}>What laptops are available?</button><button onClick={() => setInput('What is the late fee formula?')}>What is the late fee formula?</button></div></div>}{messages.map((m, i) => <div key={i} className={`chat-message chat-message--${m.role}`}><span>{m.role === 'assistant' ? 'AI' : 'You'}</span><p>{m.text}</p></div>)}{loading && <div className="chat-message chat-message--assistant"><span>AI</span><p>Thinking…</p></div>}<div ref={bottom} /></div><div className="chat-composer"><Input value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.nativeEvent.isComposing && e.keyCode !== 229) send(); }} placeholder="Ask about inventory, policies, fees…" disabled={loading} /><Button onClick={send} disabled={loading || !input.trim()}><ArrowUpRight data-icon="inline-start" /> Ask</Button></div></div></div> }
+
+export default function App() { const [currentRentals, setCurrentRentals] = useState<any[]>([]); const [overdueRentals, setOverdueRentals] = useState<any[]>([]); const [recentActivity, setRecentActivity] = useState<any[]>([]); const [returnCondition, setReturnCondition] = useState('good'); const [returnStatus, setReturnStatus] = useState<string | null>(null); const [userId, setUserId] = useState('1'); const [checkoutStatus, setCheckoutStatus] = useState<string | null>(null); const [itemStatuses, setItemStatuses] = useState<any[]>([]); const [filters, setFilters] = useState<Filters>({ room: false, item: false, available: false, checkedOut: false }); const toggleFilter = (key: keyof Filters) => setFilters(f => ({ ...f, [key]: !f[key] })); const refresh = async () => { try { const [r, o, i, a] = await Promise.all([apiClient.get('/api/rentals/current'), apiClient.get('/api/rentals/overdue'), apiClient.get('/api/items/status'), apiClient.get('/api/activity/recent')]); setCurrentRentals(r.data.rentals); setOverdueRentals(o.data.rentals); setItemStatuses(i.data.items); setRecentActivity(a.data.activity); } catch (e) { console.error('Failed to refresh library data', e); } }; useEffect(() => { refresh(); socket.on('inventory-updated', refresh); return () => { socket.off('inventory-updated', refresh); }; }, []); const checkout = async (id: number, start: Date, end: Date) => { try { const r = await apiClient.post('/api/rentals', { asset_id: id, user_id: parseInt(userId), start_date: format(start, "yyyy-MM-dd'T'HH:mm:ss"), end_date: format(end, "yyyy-MM-dd'T'HH:mm:ss") }); setCheckoutStatus(`Booking confirmed · Event ${r.data.event_id}`); refresh(); } catch (e: any) { setCheckoutStatus(e.response?.data?.error || 'Booking failed.'); } }; const returnItem = async (id: number) => { try { const r = await apiClient.post(`/api/rentals/${id}/return`, { condition_after: returnCondition }); setReturnStatus(`Return processed · Fee $${r.data.total_fee}`); refresh(); } catch (e: any) { setReturnStatus(e.response?.data?.error || 'Return failed.'); } }; return <main className="app-shell"><div className="ambient ambient-one" /><div className="ambient ambient-two" /><header className="topbar"><div className="brand"><div className="brand-mark"><Library /></div><div><strong>LibraryCheckout</strong><span>Resource operations</span></div></div><div className="topbar-actions"><span className="connection"><Radio /> System online</span><div className="avatar">LM</div></div></header><div className="app-layout"><aside className="sidebar"><div className="workspace-label">WORKSPACE <span>⌘ K</span></div><nav className="side-nav"><a className="active"><BookOpen /> Browse & Book</a><a><ShieldCheck /> Staff Dashboard</a><a><Activity /> Activity Feed</a><a><MessageCircle /> Ask <span className="new-dot" /></a></nav><div className="sidebar-footer"><div className="mini-profile"><div className="avatar">LM</div><div><strong>Library member</strong><span>User ID {userId}</span></div></div><div className="sidebar-note"><Command /> <span>Everything in one place.</span></div></div></aside><section className="content"><div className="mobile-title"><div className="eyebrow">RESOURCE OPERATIONS</div><h1>Good morning, library.</h1></div><Tabs defaultValue="browse" className="w-full"><TabsList className="sr-only"><TabsTrigger value="browse">Browse & Book</TabsTrigger><TabsTrigger value="staff">Staff Dashboard</TabsTrigger><TabsTrigger value="activity">Activity Feed</TabsTrigger><TabsTrigger value="ask">Ask</TabsTrigger></TabsList><div className="mobile-tabs"><TabsTrigger value="browse">Browse</TabsTrigger><TabsTrigger value="staff">Staff</TabsTrigger><TabsTrigger value="activity">Activity</TabsTrigger><TabsTrigger value="ask">Ask</TabsTrigger></div><TabsContent value="browse"><BrowseTab items={itemStatuses} filters={filters} toggleFilter={toggleFilter} userId={userId} setUserId={setUserId} onCheckout={checkout} status={checkoutStatus} /></TabsContent><TabsContent value="staff"><StaffTab rentals={currentRentals} overdue={overdueRentals} condition={returnCondition} setCondition={setReturnCondition} onReturn={returnItem} status={returnStatus} items={itemStatuses} /></TabsContent><TabsContent value="activity"><ActivityTab activity={recentActivity} /></TabsContent><TabsContent value="ask"><AskTab /></TabsContent></Tabs></section></div></main> }
