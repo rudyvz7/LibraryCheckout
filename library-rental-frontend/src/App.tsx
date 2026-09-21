@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import apiClient from './api/client';
 import { format, formatDistanceToNow } from 'date-fns';
 import { Button } from '@/components/ui/button';
@@ -139,6 +139,98 @@ function BookableItem({
         </div>
       </AccordionContent>
     </AccordionItem>
+  );
+}
+
+type ChatMessage = {
+  role: 'user' | 'assistant';
+  text: string;
+};
+
+function ChatTab() {
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [input, setInput] = useState('');
+  const [loading, setLoading] = useState(false);
+  const bottomRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
+  const sendMessage = async () => {
+    const question = input.trim();
+    if (!question || loading) return;
+
+    setMessages(prev => [...prev, { role: 'user', text: question }]);
+    setInput('');
+    setLoading(true);
+
+    try {
+      const response = await apiClient.post('/api/chat', { question });
+      setMessages(prev => [...prev, { role: 'assistant', text: response.data.answer }]);
+    } catch {
+      setMessages(prev => [...prev, { role: 'assistant', text: 'Sorry, the chat service is unavailable right now.' }]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') sendMessage();
+  };
+
+  return (
+    <div className="flex flex-col h-[520px]">
+      <p className="text-sm text-muted-foreground mb-4">
+        Ask anything about the library system — booking rules, available equipment, fees, and more.
+        Answers are generated from real inventory and policy data.
+      </p>
+
+      <div className="flex-1 overflow-y-auto space-y-3 pr-1 mb-4">
+        {messages.length === 0 && (
+          <div className="text-sm text-muted-foreground text-center mt-16">
+            Try asking: "What laptops do you have?" or "What's the late fee formula?"
+          </div>
+        )}
+        {messages.map((msg, i) => (
+          <div
+            key={i}
+            className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+          >
+            <div
+              className={`max-w-[80%] rounded-lg px-4 py-2 text-sm whitespace-pre-wrap ${msg.role === 'user'
+                  ? 'bg-primary text-primary-foreground'
+                  : 'bg-muted text-foreground border'
+                }`}
+            >
+              {msg.text}
+            </div>
+          </div>
+        ))}
+        {loading && (
+          <div className="flex justify-start">
+            <div className="bg-muted border rounded-lg px-4 py-2 text-sm text-muted-foreground">
+              Thinking…
+            </div>
+          </div>
+        )}
+        <div ref={bottomRef} />
+      </div>
+
+      <div className="flex gap-2">
+        <Input
+          value={input}
+          onChange={e => setInput(e.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder="Ask about rules, inventory, fees…"
+          className="bg-background"
+          disabled={loading}
+        />
+        <Button onClick={sendMessage} disabled={loading || !input.trim()}>
+          Send
+        </Button>
+      </div>
+    </div>
   );
 }
 
@@ -311,9 +403,10 @@ function App() {
       </div>
 
       <Tabs defaultValue="browse" className="w-full">
-        <TabsList className="grid w-full grid-cols-2 mb-8">
+        <TabsList className="grid w-full grid-cols-3 mb-8">
           <TabsTrigger value="browse">Browse & Book</TabsTrigger>
           <TabsTrigger value="staff">Staff Dashboard</TabsTrigger>
+          <TabsTrigger value="ask">Ask</TabsTrigger>
         </TabsList>
 
         <TabsContent value="browse" className="space-y-6">
@@ -469,16 +562,20 @@ function App() {
                     );
                   })}
                   {overdueRentals.length === 0 && (
-                     <TableRow>
-                       <TableCell colSpan={4} className="h-24 text-center text-muted-foreground">
-                         No overdue items.
-                       </TableCell>
-                     </TableRow>
+                    <TableRow>
+                      <TableCell colSpan={4} className="h-24 text-center text-muted-foreground">
+                        No overdue items.
+                      </TableCell>
+                    </TableRow>
                   )}
                 </TableBody>
               </Table>
             </div>
           </div>
+        </TabsContent>
+
+        <TabsContent value="ask">
+          <ChatTab />
         </TabsContent>
       </Tabs>
     </div>
