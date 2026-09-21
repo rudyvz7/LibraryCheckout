@@ -1,0 +1,56 @@
+[
+  {
+    "id": "rule_advance_booking_cap",
+    "category": "booking_rule",
+    "title": "7-day advance booking cap",
+    "text": "Members can book an item or room no more than 7 days in advance of the current date. A booking request for a start date more than 7 days out is rejected with a 400 error. This limit exists to keep the reservation calendar realistic and prevent long-range speculative holds on high-demand assets."
+  },
+  {
+    "id": "rule_off_premise",
+    "category": "booking_rule",
+    "title": "Off-premise rule (no pre-booking a checked-out item)",
+    "text": "Off-premise items are items that require payment (requires_payment = true), such as cameras, keyboards, and laptops that leave the building with the member. An off-premise item cannot be booked in advance while it has an active, unreturned checkout — it must first be returned before a new future booking can be created against it. Attempting to do so is rejected with a 409 error: 'This item cannot be booked in advance while a previous rental is still outstanding. It must be returned first.' This prevents the system from promising an item to a second member before the first member has physically returned it."
+  },
+  {
+    "id": "rule_on_premise_duration_limit",
+    "category": "booking_rule",
+    "title": "On-premise duration limit (3 hours)",
+    "text": "On-premise assets are assets that do not require payment (requires_payment = false), such as study rooms and media rooms that stay in the building. An on-premise booking cannot exceed 3 hours in duration; a longer request is rejected with a 400 error: 'On-premise items and rooms can only be booked for a maximum of 3 hours.' Unlike off-premise items, on-premise assets are not restricted from being booked in advance even if currently in use for a different time slot — only the overlap/double-booking rule and the duration cap apply."
+  },
+  {
+    "id": "rule_no_double_booking",
+    "category": "booking_rule",
+    "title": "No double-booking guarantee (exclusion constraint)",
+    "text": "The system guarantees that no two reservations for the same asset can have overlapping date ranges. This is enforced at the database level using a Postgres exclusion constraint built with the btree_gist extension, scoped with a partial index (WHERE is_active = true) so it only evaluates against currently active rentals rather than historical ones. This runs instead of, or in addition to, an application-level check-then-insert, which is vulnerable to race conditions under concurrent requests. If two members attempt to book the same asset for overlapping times at the same moment, the database itself rejects the second, conflicting insert with a 409 error."
+  },
+  {
+    "id": "rule_payment_gating",
+    "category": "payment_rule",
+    "title": "Payment gating for reservations",
+    "text": "Items with requires_payment = true cannot be booked unless the member has a stripe_customer_id on file. If they don't, the booking is rejected with a 402 error: 'This item requires a payment method on file.' Items with requires_payment = false (on-premise items and all rooms) can be booked without any payment step. In the current demo data, Test User (user_id 1) has no payment method on file, while Maria Gonzalez (10) and Tom Nguyen (13) do."
+  },
+  {
+    "id": "rule_late_fee_formula",
+    "category": "fee_rule",
+    "title": "Late fee formula",
+    "text": "When an item is returned after its end_date, a late fee is calculated as: late_fee = replacement_value * 0.10 * days_late, where days_late is calculated via Math.ceil of the elapsed time since end_date in days. In other words, the member is charged 10% of the item's replacement value for every day (rounded up) the return is late. This only applies to items (which have a replacement_value); rooms use COALESCE to default replacement_value to 0, so rooms cannot accrue a late fee under this formula."
+  },
+  {
+    "id": "rule_condition_fee_tiers",
+    "category": "fee_rule",
+    "title": "Condition fee tiers (damage fees)",
+    "text": "When an item is returned, its condition_after value determines a condition fee: 'lightly_damaged_usable' incurs a flat $10 fee. 'unusable' incurs a fee of replacement_value * 1.5 (150% of the item's replacement value). Any other condition_after value (e.g. 'good') incurs no condition fee. Condition fee and late fee are additive — a return can be both late and damaged, and the total_fee charged is the rounded sum of both. An item returned as 'unusable' also has its current_status set to 'unusable' going forward (rather than back to 'available')."
+  },
+  {
+    "id": "rule_event_sourcing_status",
+    "category": "system_rule",
+    "title": "How asset status and history are tracked (event sourcing)",
+    "text": "Every checkout, extension, and return is recorded as an immutable row in the rental_events table, linked together by a shared rental_group_id — this event log is the source of truth for an asset's full history. The current_status and current_condition fields on the items table (and current_status on rooms) are denormalized read caches kept in sync with the latest event, so the UI can query current state quickly without replaying the full event history on every request. An event row also has an is_active flag, flipped to false on return, which is what the no-double-booking exclusion constraint filters on. If current_status ever appears inconsistent with the actual event log, the event log is correct and current_status should be treated as stale."
+  },
+  {
+    "id": "rule_schema_design",
+    "category": "system_rule",
+    "title": "Polymorphic asset schema (supertype/subtype)",
+    "text": "Bookable assets are modeled with a shared supertype table, rentable_assets, which generates a universal asset_id. The items and rooms tables are subtypes: each uses that same asset_id as its own primary key (item_id or room_id), a foreign-key-as-primary-key pattern. Items have fields like replacement_value, current_condition, category, and requires_payment; rooms have fields like room_number and capacity. rental_events references asset_id generically, so a single booking system handles both items and rooms without nullable dual foreign keys."
+  }
+]
