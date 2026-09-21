@@ -66,7 +66,7 @@ function BrowseTab({ items, filters, toggleFilter, userId, setUserId, onCheckout
     <div className="section-heading"><div><div className="eyebrow">CATALOG</div><h3>Browse inventory</h3><p>Filter by type or availability to find what you need.</p></div><div className="user-field"><UserRound /><Input value={userId} onChange={e => setUserId(e.target.value)} aria-label="User ID" placeholder="User ID" /></div></div>
     <div className="filter-bar"><Filter /><span>Show</span>{(['room', 'item', 'available', 'checkedOut'] as const).map(key => <Button key={key} size="sm" variant={filters[key] ? 'default' : 'outline'} onClick={() => toggleFilter(key)}>{key === 'checkedOut' ? 'Checked out' : key === 'available' ? 'Available now' : key === 'room' ? 'Rooms' : 'Equipment'}</Button>)}<span className="result-count">{filtered.length} results</span></div>
     {status && <div className="success-line"><Check /> {status}</div>}
-    <div className="inventory-card"><Accordion multiple={false}>{filtered.map(item => <BookableItem item={item} key={item.id} onCheckout={onCheckout} />)}</Accordion>{filtered.length === 0 && <div className="empty-state">No inventory matches these filters.</div>}</div>
+    <div className="inventory-card"><Accordion type="single" collapsible>{filtered.map(item => <BookableItem item={item} key={item.id} onCheckout={onCheckout} />)}</Accordion>{filtered.length === 0 && <div className="empty-state">No inventory matches these filters.</div>}</div>
   </div>;
 }
 
