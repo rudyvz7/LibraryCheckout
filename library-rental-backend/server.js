@@ -317,7 +317,7 @@ app.post('/api/rentals', async (req, res, next) => {
     } else {
         const durationMs = new Date(end_date) - new Date(start_date);
         const durationHours = durationMs / (1000 * 60 * 60);
-        
+
         if (durationHours > 3) {
             const err = new Error('On-premise items and rooms can only be booked for a maximum of 3 hours.');
             err.statusCode = 400;
@@ -465,6 +465,27 @@ app.post('/api/rentals/:eventId/return', async (req, res, next) => {
     }
 });
 
+app.post('/api/chat', async (req, res, next) => {
+    const { question } = req.body;
+
+    if (!question) {
+        return res.status(400).json({ success: false, error: 'question is required.' });
+    }
+
+    try {
+        const response = await fetch('http://localhost:5001/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ question }),
+        });
+
+        const data = await response.json();
+        res.json({ success: true, answer: data.answer });
+    } catch (err) {
+        err.message = 'Chat service unavailable: ' + err.message;
+        next(err);
+    }
+});
 app.use((err, req, res, next) => {
     const statusCode = err.statusCode || 500;
     res.status(statusCode).json({ success: false, error: err.message });
