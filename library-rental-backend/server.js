@@ -467,18 +467,16 @@ app.post('/api/rentals/:eventId/return', async (req, res, next) => {
 
 app.post('/api/chat', async (req, res, next) => {
     const { question } = req.body;
-
     if (!question) {
         return res.status(400).json({ success: false, error: 'question is required.' });
     }
-
     try {
-        const response = await fetch('http://localhost:5001/chat', {
+        const ragUrl = process.env.RAG_SERVICE_URL || 'http://localhost:5001';
+        const response = await fetch(`${ragUrl}/chat`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ question }),
         });
-
         const data = await response.json();
         res.json({ success: true, answer: data.answer });
     } catch (err) {
